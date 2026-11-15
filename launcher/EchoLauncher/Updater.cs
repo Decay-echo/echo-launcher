@@ -61,7 +61,13 @@ namespace EchoLauncher
                 Exception last = null;
                 for (var i = 0; i < 20; i++)
                 {
-                    try { File.Copy(self, target, true); last = null; break; }
+                    try
+                    {
+                        try { if (File.Exists(target)) File.Copy(target, target + ".old", true); } catch { }  // the previous version, one run's worth of undo
+                        File.Copy(self, target, true);
+                        last = null;
+                        break;
+                    }
                     catch (Exception e) { last = e; Thread.Sleep(500); }
                 }
                 if (last != null) throw last;

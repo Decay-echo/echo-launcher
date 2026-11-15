@@ -1,0 +1,10 @@
+[
+  { "id": "normal",   "name": "Normal (stock physics)",    "dlls": ["echo_viewer_client.dll"],   "note": "Stock physics and no powers, but you still see other players' mods." },
+  { "id": "gravity",  "name": "Gravity",                   "dlls": ["echo_gravity_client.dll"],  "note": "Discs and players fall. Works with the server-side gate." },
+  { "id": "speed",    "name": "Super Speed",               "dlls": ["echo_speed_client.dll"],    "note": "x2 thrusters, no speed cap, 4 boosts in a row." },
+  { "id": "tiny",     "name": "Tiny (experimental)",       "dlls": ["echo_tiny_client.dll"],     "note": "You are 3x smaller in your own headset." },
+  { "id": "strength", "name": "Strength (experimental)",   "dlls": ["echo_strength_client.dll"], "note": "Faster throws, longer stuns." },
+  { "id": "stretch",  "name": "Stretch (experimental)",    "dlls": ["echo_stretch_client.dll"],  "note": "Hold X / A for 5x arms." },
+  { "id": "blink",    "name": "Blink (experimental)",      "dlls": ["echo_blink_client.dll"],    "note": "A = invisible 5 s, X = blink where you look." },
+  { "id": "web",      "name": "Spider-Man (experimental)", "dlls": ["echo_web_client.dll"],      "note": "Hold X / A to web and swing." }
+]

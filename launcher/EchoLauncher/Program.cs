@@ -7,7 +7,7 @@ namespace EchoLauncher
 {
     public static class Program
     {
-        public const string Version = "1.0.0";
+        public const string Version = "1.0.1";
         public static string ExePath { get { return Application.ExecutablePath; } }
 
         [STAThread]
@@ -16,6 +16,7 @@ namespace EchoLauncher
             Log.Init(Settings.Dir);
             if (args.Length == 3 && args[0] == "--apply-update") return Updater.RunApply(args);
             if (args.Length == 3 && args[0] == "--selftest") return SelfTest.Run(args[1], args[2]);
+            if (args.Length >= 1 && (args[0] == "--launch" || args[0] == "--official")) return Headless.Run(args);
 
             bool created;
             using (var mutex = new Mutex(true, "Local\\EchoLauncher.single", out created))

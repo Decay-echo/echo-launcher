@@ -23,7 +23,7 @@ namespace EchoLauncher
         readonly Label lblTitle = new Label(), lblServers = new Label(), lblMotd = new Label(), lblGame = new Label(), lblModeNote = new Label(), lblStatusLine = new Label();
         readonly ListView lvServers = new ListView();
         readonly ComboBox cboMode = new ComboBox();
-        readonly Button btnLaunch = new Button(), btnOfficial = new Button(), btnDiscord = new Button(), btnReport = new Button(), btnGame = new Button(), btnRefresh = new Button(), btnUpdate = new Button(), btnSettings = new Button();
+        readonly Button btnLaunch = new Button(), btnOfficial = new Button(), btnReport = new Button(), btnGame = new Button(), btnRefresh = new Button(), btnUpdate = new Button(), btnSettings = new Button();
         readonly ProgressBar progress = new ProgressBar();
         readonly TextBox log = new TextBox();
         readonly Timer statusTimer = new Timer { Interval = 10000 };
@@ -123,11 +123,7 @@ namespace EchoLauncher
             Controls.Add(btnOfficial);
             y += 48;
 
-            btnDiscord.Text = "Discord"; btnDiscord.Size = new Size(140, 30); btnDiscord.Location = new Point(22, y);
-            btnDiscord.FlatStyle = FlatStyle.Flat; btnDiscord.BackColor = Grey;
-            btnDiscord.Click += (s, e) => OpenDiscord();
-            Controls.Add(btnDiscord);
-            btnReport.Text = "Report a problem"; btnReport.Size = new Size(160, 30); btnReport.Location = new Point(172, y);
+            btnReport.Text = "Report a problem"; btnReport.Size = new Size(160, 30); btnReport.Location = new Point(22, y);
             btnReport.FlatStyle = FlatStyle.Flat; btnReport.BackColor = Grey;
             btnReport.Click += (s, e) => ReportClicked();
             Controls.Add(btnReport);
@@ -198,29 +194,7 @@ namespace EchoLauncher
 
         async Task LoadManifest()
         {
-            string json = null, source = "";
-            try { json = await Net.GetText(settings.BaseUrl + "/mods/manifest.json"); source = "server"; }
-            catch (Exception e) { Log.Write("manifest not reachable (" + e.Message + "); trying the cached copy"); }
-            if (json == null && File.Exists(Settings.CachedManifestPath))
-            {
-                try { json = File.ReadAllText(Settings.CachedManifestPath, Encoding.UTF8); source = "cache"; } catch { }
-            }
-            if (json != null)
-            {
-                try
-                {
-                    manifest = Manifest.Parse(json);
-                    if (source == "server") { try { Directory.CreateDirectory(Settings.Dir); File.WriteAllText(Settings.CachedManifestPath, json, Encoding.UTF8); } catch { } }
-                    Log.Write("manifest v" + manifest.Version + " from " + source + ": " + manifest.Files.Count + " files, " + manifest.Modes.Count + " modes");
-                }
-                catch (Exception e) { Log.Write("manifest unreadable: " + e.Message); manifest = Manifest.Fallback(); }
-            }
-            else
-            {
-                manifest = Manifest.Fallback();
-                Log.Write("no manifest available: modes shown, but installing mods needs the server");
-            }
-            if (!string.IsNullOrEmpty(manifest.Discord) && manifest.Discord != settings.DiscordUrl) { settings.DiscordUrl = manifest.Discord; settings.Save(); }
+            manifest = await LaunchFlow.LoadManifest(settings);
             cboMode.Items.Clear();
             var select = 0;
             for (var i = 0; i < manifest.Modes.Count; i++)
@@ -274,12 +248,25 @@ namespace EchoLauncher
             }
         }
 
+        bool updateRequired;
+
         async Task CheckUpdate()
         {
             try
             {
-                var json = await Net.GetText(settings.BaseUrl + "/launcher/latest.json", 10);
-                var latest = Latest.Parse(json);
+                var bytes = await Net.GetSigned(settings.BaseUrl + "/launcher/latest.json", "latest.json", 10);
+                var latest = Latest.Parse(Encoding.UTF8.GetString(bytes));
+                if (Updater.IsNewer(Program.Version, latest.Version))
+                {
+                    Log.Write("latest.json offers " + latest.Version + ", older than this " + Program.Version + ": ignored");
+                    return;
+                }
+                if (!string.IsNullOrEmpty(latest.MinSupported) && Updater.IsNewer(latest.MinSupported, Program.Version))
+                {
+                    updateRequired = true;
+                    btnLaunch.Enabled = false;
+                    Say("This Echo Launcher (" + Program.Version + ") is no longer supported; the update is required before launching.");
+                }
                 if (!Updater.IsNewer(latest.Version, Program.Version)) return;
                 Log.Write("launcher " + latest.Version + " is available (this is " + Program.Version + "): " + latest.Notes);
                 var path = await Updater.Fetch(latest, Say, Progress);
@@ -289,13 +276,20 @@ namespace EchoLauncher
             finally { Progress(-1); }
         }
 
-        void ShowUpdateButton() { btnUpdate.Visible = true; Say("A newer Echo Launcher is downloaded: click 'Update ready: restart' when convenient."); }
+        void ShowUpdateButton()
+        {
+            btnUpdate.Visible = true;
+            btnUpdate.Text = updateRequired ? "Update required: restart" : "Update ready: restart";
+            Say(updateRequired ? "The required update is downloaded: click 'Update required: restart'."
+                               : "A newer Echo Launcher is downloaded: click 'Update ready: restart' when convenient.");
+        }
 
         // ---- the two big buttons ----
 
         async Task LaunchClicked()
         {
             if (busy) return;
+            if (updateRequired) { Say("Update first: click 'Update required: restart'."); return; }
             if (game == null) { Say("Find your Echo VR folder first (Find game...)."); PickGame(); if (game == null) return; }
             if (Game.IsRunning()) { Say("Echo VR is already running. Close it, then launch from here so the mods load."); return; }
             var mode = SelectedMode();
@@ -303,27 +297,10 @@ namespace EchoLauncher
             busy = true; SetButtons(false);
             try
             {
-                if (manifest.IsFallback || manifest.Files.Count == 0)
-                {
-                    await LoadManifest();
-                    if (manifest.IsFallback || manifest.Files.Count == 0) throw new InvalidOperationException("the mod list could not be fetched from " + settings.BaseUrl + "; check your internet connection");
-                }
-                game.WriteServerConfig(manifest.Backend);
-                var fwd = manifest.Forwarder;
-                if (fwd == null) throw new InvalidOperationException("the manifest has no mod loader entry");
-                await game.EnsureForwarder(fwd, Say, Progress);
-                var names = new List<string>();
-                foreach (var dll in mode.Dlls)
-                {
-                    var f = manifest.FileByName(dll);
-                    if (f == null) { Log.Write("mode " + mode.Id + " names " + dll + " but the manifest has no such file; skipped"); continue; }
-                    await game.EnsureMod(f, Say, Progress);
-                    names.Add(Path.GetFileName(f.Dest));
-                }
-                game.WriteModeFile(names, mode.Name);
-                settings.LastMode = mode.Id; settings.Save();
+                if (manifest.IsFallback || manifest.Files.Count == 0) await LoadManifest();
+                mode = SelectedMode() ?? mode;
+                await LaunchFlow.Launch(game, manifest, mode, settings, Say, Progress, true);
                 Progress(-1);
-                game.Launch();
                 Say("Echo VR started in mode '" + mode.Name + "'. First time here: the game shows a four-character code; give it to the Discord bot with /link-headset.");
                 ShowGame();
             }
@@ -342,21 +319,12 @@ namespace EchoLauncher
             if (Game.IsRunning()) { Say("Close Echo VR first, then click again."); return; }
             try
             {
-                var restored = game.RestoreOriginalConfig();
-                game.RemoveForwarder();
-                if (Directory.Exists(game.ModsDir)) game.WriteModeFile(new string[0], "official");
+                var restored = LaunchFlow.Official(game);
                 Say(restored ? "Back on official EchoVRCE: original config restored, mod loader removed. Start Echo as usual."
                              : "Mod loader removed. No saved original config to restore (you may never have connected from here).");
                 ShowGame();
             }
             catch (Exception e) { Log.Write("back to official failed: " + e); Say("Could not switch back: " + e.Message); }
-        }
-
-        void OpenDiscord()
-        {
-            var url = !string.IsNullOrEmpty(manifest.Discord) ? manifest.Discord : settings.DiscordUrl;
-            if (string.IsNullOrEmpty(url) || !url.StartsWith("https://")) { Say("No Discord link is set yet."); return; }
-            try { Process.Start(new ProcessStartInfo(url) { UseShellExecute = true }); } catch (Exception e) { Say("Could not open the link: " + e.Message); }
         }
 
         void ReportClicked()

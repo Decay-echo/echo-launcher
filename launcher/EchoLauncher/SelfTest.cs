@@ -53,15 +53,25 @@ namespace EchoLauncher
             check("fake game root resolves", game.Root.TrimEnd('\\').Equals(root.TrimEnd('\\'), StringComparison.OrdinalIgnoreCase));
             check("target before: official", game.CurrentTarget() == "EchoVRCE (official)");
 
-            // the three documents
-            var manifest = Manifest.Parse(await Net.GetText(baseUrl + "/mods/manifest.json"));
+            // the three documents, the two signed ones through the signature check
+            Net.AllowLocal = baseUrl.StartsWith("http://127.0.0.1") || baseUrl.StartsWith("http://localhost");
+            check("unknown hosts refused", !Net.Allowed("https://example.com/x") && !Net.Allowed("http://get.bootnet.app/x") && Net.Allowed("https://get.bootnet.app/status.json") && Net.Allowed("https://github.com/Decay-echo/echo-launcher/releases/download/v1.0.0/EchoLauncher.exe") && !Net.Allowed("https://github.com/Decay-echo/other/releases/download/v1/x"));
+            var manifest = Manifest.Parse(Encoding.UTF8.GetString(await Net.GetSigned(baseUrl + "/mods/manifest.json", "manifest.json")));
             check("manifest parsed with files", manifest.Files.Count > 0);
             check("manifest has a loader entry", manifest.Forwarder != null);
             check("manifest has modes", manifest.Modes.Count >= 2);
             var status = Status.Parse(await Net.GetText(baseUrl + "/status.json"));
             check("status parsed with servers", status.Servers.Count > 0);
-            var latest = Latest.Parse(await Net.GetText(baseUrl + "/launcher/latest.json"));
+            var latest = Latest.Parse(Encoding.UTF8.GetString(await Net.GetSigned(baseUrl + "/launcher/latest.json", "latest.json")));
             check("latest parsed", latest.Version.Length > 0 && latest.Sha256.Length == 64);
+            var tamperedRefused = false;
+            try { await Net.GetSigned(baseUrl + "/mods-tampered/manifest.json", "tampered manifest"); } catch (System.Security.SecurityException) { tamperedRefused = true; }
+            check("tampered manifest refused", tamperedRefused);
+            var unsignedRefused = false;
+            try { await Net.GetSigned(baseUrl + "/status.json", "status without sig"); } catch (System.Security.SecurityException) { unsignedRefused = true; }
+            check("unsigned file refused", unsignedRefused);
+            string why;
+            check("garbage signature refused", !Signing.Verify(new byte[] { 1, 2, 3 }, "not base64!", out why) && !Signing.Verify(new byte[] { 1, 2, 3 }, Convert.ToBase64String(new byte[384]), out why));
             check("SafeDest refuses escapes", !Manifest.SafeDest("mods/../x.dll") && !Manifest.SafeDest("bin/win10/sub/x.dll") && !Manifest.SafeDest("other/x.dll") && Manifest.SafeDest("mods/a.dll") && Manifest.SafeDest("bin/win10/amd_ags_x64.dll"));
 
             // backend config
@@ -129,6 +139,23 @@ namespace EchoLauncher
             var report = Report.Make(game, status);
             check("report zip written", File.Exists(report) && new FileInfo(report).Length > 0);
             try { File.Delete(report); } catch { }
+
+            // a copy that had NO config.json: launch writes one, "Back to official" removes it again
+            var root2 = Path.Combine(scratch, "game-noconfig");
+            if (Directory.Exists(root2)) Directory.Delete(root2, true);
+            var bin2 = Path.Combine(root2, "bin", "win10");
+            Directory.CreateDirectory(bin2);
+            File.WriteAllText(Path.Combine(bin2, "echovr.exe"), "not a real game");
+            File.WriteAllText(Path.Combine(bin2, Game.ForwarderName), "ORIGINAL AMD AGS");
+            var game2 = new Game(Path.Combine(bin2, "echovr.exe"));
+            check("no-config copy: target before", game2.CurrentTarget() == "no config yet");
+            game2.WriteServerConfig(manifest.Backend);
+            check("no-config copy: marker written, no backup", File.Exists(game2.NoneMarkerPath) && !File.Exists(game2.BackupPath) && File.Exists(game2.ConfigPath));
+            game2.WriteServerConfig(manifest.Backend);
+            check("no-config copy: second write keeps the marker", File.Exists(game2.NoneMarkerPath) && !File.Exists(game2.BackupPath));
+            check("no-config copy: revert removes the config", game2.RestoreOriginalConfig() && !File.Exists(game2.ConfigPath) && !File.Exists(game2.NoneMarkerPath));
+            check("no-config copy: second revert is a no-op", !game2.RestoreOriginalConfig());
+            check("server copy detected", !game.LooksLikeServerCopy() && (new Func<bool>(() => { File.WriteAllText(game2.ConfigPath, "{\"serverdb_host\":\"ws://x/ws?regions=default&serveraddr=h\"}"); return game2.LooksLikeServerCopy(); }))());
         }
     }
 }

@@ -17,6 +17,7 @@ namespace EchoLauncher
         public string DiscordUrl = "";            // the manifest's "discord" wins when present
         public bool MigratedOldSwitcher = false;
         public string UpdateReady = "";           // path of a downloaded, verified new EchoLauncher.exe
+        public long ManifestVersionSeen = 0;      // a served manifest may never go below this
 
         public static string Dir
         {
@@ -38,12 +39,15 @@ namespace EchoLauncher
                 s.DiscordUrl = Json.Str(o, "discord_url");
                 s.MigratedOldSwitcher = Json.Bool(o, "migrated_old_switcher");
                 s.UpdateReady = Json.Str(o, "update_ready");
+                s.ManifestVersionSeen = Json.Int(o, "manifest_version_seen");
                 if (string.IsNullOrWhiteSpace(s.BaseUrl)) s.BaseUrl = DefaultBaseUrl;
             }
             catch (Exception e)
             {
                 Log.Write("settings.json unreadable, using defaults: " + e.Message);
             }
+            // A base URL on this machine is a test site the person set up on purpose; only then may http://127.0.0.1 be used.
+            Net.AllowLocal = s.BaseUrl.StartsWith("http://127.0.0.1") || s.BaseUrl.StartsWith("http://localhost");
             return s;
         }
 
@@ -60,6 +64,7 @@ namespace EchoLauncher
                     { "discord_url", DiscordUrl },
                     { "migrated_old_switcher", MigratedOldSwitcher },
                     { "update_ready", UpdateReady },
+                    { "manifest_version_seen", ManifestVersionSeen },
                 };
                 var tmp = FilePath + ".tmp";
                 File.WriteAllText(tmp, Json.Stringify(o), Encoding.UTF8);

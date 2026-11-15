@@ -16,6 +16,9 @@ namespace EchoLauncher
     {
         public const string ServerKey = "defaultkey";  // nakama's stock socket key; public, every client carries it
         public const string BackupName = "config.original-backup.json";
+        // Written when the launcher creates config.json in a copy that had none, so "Back to official" knows
+        // to remove it again instead of leaving a file the player never had.
+        public const string NoneMarkerName = "config.none-before-launcher";
         public const string ForwarderName = "amd_ags_x64.dll";
         public const string OriginalName = "amd_ags_x64_orig.dll";
 
@@ -42,14 +45,29 @@ namespace EchoLauncher
             }
         }
         public string BackupPath { get { return Path.Combine(Path.GetDirectoryName(ConfigPath), BackupName); } }
+        public string NoneMarkerPath { get { return Path.Combine(Path.GetDirectoryName(ConfigPath), NoneMarkerName); } }
 
         // ---- finding the game ----
 
+        // Play copies first. C:\echo\EchoBinarys is the owner's game-SERVER copy (its config carries server-only
+        // parameters), so it is the last resort and never preferred over a player install.
         public static readonly string[] KnownExes =
         {
-            @"C:\echo\EchoBinarys\bin\win10\echovr.exe",
             @"C:\EchoVR\ready-at-dawn-echo-arena\bin\win10\echovr.exe",
+            @"C:\echo\EchoBinarys\bin\win10\echovr.exe",
         };
+
+        // A game copy whose config carries server registration parameters is a dedicated-server install.
+        public bool LooksLikeServerCopy()
+        {
+            try
+            {
+                if (!File.Exists(ConfigPath)) return false;
+                var text = File.ReadAllText(ConfigPath, Encoding.UTF8);
+                return text.Contains("serveraddr=") || text.Contains("regions=");
+            }
+            catch { return false; }
+        }
 
         public static string FindExe(Settings s)
         {
@@ -95,10 +113,15 @@ namespace EchoLauncher
         {
             var dir = Path.GetDirectoryName(ConfigPath);
             Directory.CreateDirectory(dir);
-            if (File.Exists(ConfigPath) && !File.Exists(BackupPath))
+            if (File.Exists(ConfigPath) && !File.Exists(BackupPath) && !File.Exists(NoneMarkerPath))
             {
                 File.Copy(ConfigPath, BackupPath);
                 Log.Write("saved the original config as " + BackupName);
+            }
+            else if (!File.Exists(ConfigPath) && !File.Exists(BackupPath))
+            {
+                File.WriteAllText(NoneMarkerPath, "This game copy had no _local\\config.json before Echo Launcher wrote one; 'Back to official' removes it.\n");
+                Log.Write("this copy had no config.json; noted so that Back to official removes the launcher's");
             }
             var ws = "ws://" + hostPort + "/ws?format=evr&token=" + ServerKey;
             var json = new Dictionary<string, object>
@@ -118,12 +141,23 @@ namespace EchoLauncher
             Log.Write("config.json now points at " + hostPort);
         }
 
+        // Puts the copy's config back the way it was: the saved original, or no file at all when there was none.
         public bool RestoreOriginalConfig()
         {
-            if (!File.Exists(BackupPath)) return false;
-            File.Copy(BackupPath, ConfigPath, true);
-            Log.Write("config.json restored from " + BackupName);
-            return true;
+            if (File.Exists(BackupPath))
+            {
+                File.Copy(BackupPath, ConfigPath, true);
+                Log.Write("config.json restored from " + BackupName);
+                return true;
+            }
+            if (File.Exists(NoneMarkerPath))
+            {
+                if (File.Exists(ConfigPath)) File.Delete(ConfigPath);
+                File.Delete(NoneMarkerPath);
+                Log.Write("config.json removed again (this copy had none before the launcher)");
+                return true;
+            }
+            return false;
         }
 
         // ---- the client forwarder ----
