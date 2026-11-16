@@ -17,7 +17,7 @@ What it does, on `Launch Echo on our servers`:
 No injector, no watcher process, no Startup entry: the old "EchoVRCE Switcher" had all three and its `inject.exe`
 is flagged by Defender; the launcher retires an old install on first run (`Migration.cs`).
 
-It reads three documents from `https://get.bootnet.app` (overridable in Settings for tests):
+It reads three documents from `https://get.bootnet.app` (for tests, `base_url` in `%LOCALAPPDATA%\EchoLauncher\settings.json` overrides it; the window never shows it):
 `/status.json` (the status panel), `/mods/manifest.json` (modes and files), `/launcher/latest.json`
 (self-update: downloaded and verified, applied when the player clicks `Update ready: restart`).
 
@@ -42,7 +42,7 @@ exe (`EchoLauncher/SigningKey.cs`, made by `tools/pubkey-to-cs.ps1` from `echo-l
 key stays in `%USERPROFILE%\.echo-launcher\signing\` on the owner's PC (plus one offline copy) and never on any
 server. The launcher refuses an unsigned or tampered file, a manifest whose version goes backwards, and any URL that
 is not `https://get.bootnet.app/` or `https://github.com/Decay-echo/echo-launcher/releases/download/` (a
-`http://127.0.0.1` base URL set by hand in Settings is the one exception, for the local test site). Every binary is
+`http://127.0.0.1` `base_url` set by hand in settings.json is the one exception, for the local test site). Every binary is
 SHA-256-checked against the signed manifest before it touches the game folder; a self-update keeps the previous exe
 as `EchoLauncher.exe.old`. `latest.json`'s `min_supported` makes an update mandatory.
 
@@ -64,5 +64,5 @@ as `EchoLauncher.exe.old`. `latest.json`'s `min_supported` makes an update manda
 
 `test\make-test-site.ps1` builds a folder with `status.json`, `launcher/latest.json`, `mods/manifest.json` (both
 signed with the owner's key, plus a tampered copy the launcher must refuse) and the files from the local builds, and
-serves it on `http://127.0.0.1:8787`; point the launcher's Settings at that URL, or run
+serves it on `http://127.0.0.1:8787`; set `base_url` in settings.json to that URL, or run
 `build\EchoLauncher.exe --selftest http://127.0.0.1:8787 <scratch folder>` (36 checks).

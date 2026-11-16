@@ -75,7 +75,7 @@ namespace EchoLauncher
 
             lvServers.View = View.Details; lvServers.FullRowSelect = true; lvServers.HeaderStyle = ColumnHeaderStyle.Nonclickable;
             lvServers.BackColor = Panel; lvServers.ForeColor = Fg; lvServers.BorderStyle = BorderStyle.FixedSingle;
-            lvServers.Columns.Add("Server", 90); lvServers.Columns.Add("State", 90); lvServers.Columns.Add("Players", 80); lvServers.Columns.Add("Mode", 90); lvServers.Columns.Add("Address", 210);
+            lvServers.Columns.Add("Server", 90); lvServers.Columns.Add("State", 90); lvServers.Columns.Add("Players", 80); lvServers.Columns.Add("Mode", 90);
             lvServers.Size = new Size(580, 96); lvServers.Location = new Point(22, y);
             lvServers.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
             Controls.Add(lvServers);
@@ -176,7 +176,7 @@ namespace EchoLauncher
         {
             if (game == null) { lblGame.Text = "Echo VR not found. Click Find game... and pick echovr.exe (inside your Echo folder, under bin\\win10)."; lblGame.ForeColor = Orange; return; }
             lblGame.ForeColor = Dim;
-            lblGame.Text = "Game: " + game.Root + "\nPoints at: " + game.CurrentTarget() + (game.ForwarderInstalled ? "   |   mod loader: installed" : "   |   mod loader: not installed");
+            lblGame.Text = "Game: " + game.Root + "\nPlays on: " + TargetName() + (game.ForwarderInstalled ? "   |   mod loader: installed" : "   |   mod loader: not installed");
         }
 
         void PickGame()
@@ -232,7 +232,7 @@ namespace EchoLauncher
                 lvServers.Items.Clear();
                 foreach (var s in status.Servers)
                 {
-                    var it = new ListViewItem(new[] { s.Name, s.Up ? (string.IsNullOrEmpty(s.MatchState) ? "up" : s.MatchState) : "down", s.Up ? s.Players + " / " + s.Max : "-", s.Mode, s.Address });
+                    var it = new ListViewItem(new[] { s.Name, s.Up ? (string.IsNullOrEmpty(s.MatchState) ? "up" : s.MatchState) : "down", s.Up ? s.Players + " / " + s.Max : "-", s.Mode });
                     it.ForeColor = s.Up ? Fg : Color.Gray;
                     lvServers.Items.Add(it);
                 }
@@ -243,7 +243,9 @@ namespace EchoLauncher
             }
             catch (Exception e)
             {
-                lblServers.Text = "Servers   (status not reachable: " + e.Message + ")";
+                // The reason can carry the status address, which players are not shown; it goes to the log.
+                Log.Write("status not reachable: " + e.Message);
+                lblServers.Text = "Servers   (status not reachable)";
                 if (manual) Say("Could not read the server status.");
             }
         }
@@ -340,26 +342,25 @@ namespace EchoLauncher
 
         void SettingsClicked()
         {
-            using (var dlg = new Form { Text = "Echo Launcher settings", Size = new Size(520, 190), StartPosition = FormStartPosition.CenterParent, FormBorderStyle = FormBorderStyle.FixedDialog, MaximizeBox = false, MinimizeBox = false, BackColor = Bg, ForeColor = Fg, Font = Font })
+            // Where the launcher fetches status and updates is not shown to players. A test can still set base_url in the
+            // launcher's settings file.
+            using (var dlg = new Form { Text = "Echo Launcher settings", Size = new Size(520, 150), StartPosition = FormStartPosition.CenterParent, FormBorderStyle = FormBorderStyle.FixedDialog, MaximizeBox = false, MinimizeBox = false, BackColor = Bg, ForeColor = Fg, Font = Font })
             {
-                var l1 = new Label { Text = "Update server (leave as is unless the host told you otherwise):", AutoSize = true, Location = new Point(14, 14) };
-                var t1 = new TextBox { Text = settings.BaseUrl, Location = new Point(14, 38), Size = new Size(476, 26), BackColor = Panel, ForeColor = Fg };
-                var l2 = new Label { Text = "Game: " + (game != null ? game.Exe : "(not found)"), AutoSize = false, Size = new Size(476, 22), Location = new Point(14, 74), ForeColor = Dim };
-                var ok = new Button { Text = "Save", Location = new Point(394, 108), Size = new Size(96, 30), FlatStyle = FlatStyle.Flat, BackColor = Blue, DialogResult = DialogResult.OK };
-                var reset = new Button { Text = "Default", Location = new Point(290, 108), Size = new Size(96, 30), FlatStyle = FlatStyle.Flat, BackColor = Grey };
-                reset.Click += (s, e) => t1.Text = Settings.DefaultBaseUrl;
-                dlg.Controls.AddRange(new Control[] { l1, t1, l2, ok, reset });
+                var l2 = new Label { Text = "Game: " + (game != null ? game.Exe : "(not found)"), AutoSize = false, Size = new Size(476, 22), Location = new Point(14, 20), ForeColor = Dim };
+                var ok = new Button { Text = "Close", Location = new Point(394, 64), Size = new Size(96, 30), FlatStyle = FlatStyle.Flat, BackColor = Blue, DialogResult = DialogResult.OK };
+                dlg.Controls.AddRange(new Control[] { l2, ok });
                 dlg.AcceptButton = ok;
-                if (dlg.ShowDialog(this) != DialogResult.OK) return;
-                var url = t1.Text.Trim().TrimEnd('/');
-                if (!url.StartsWith("http://") && !url.StartsWith("https://")) { Say("The update server must start with https:// (or http:// for a local test)."); return; }
-                if (url != settings.BaseUrl)
-                {
-                    settings.BaseUrl = url; settings.Save();
-                    Log.Write("update server set to " + url);
-                    Task.Run(async () => { await LoadManifest(); await RefreshStatus(true); });
-                }
+                dlg.ShowDialog(this);
             }
+        }
+
+        // Where the game plays, in words: our servers, the official service, or another one. No address is shown.
+        string TargetName()
+        {
+            var t = game.CurrentTarget();
+            if (t == "no config yet" || t == "unknown" || t == "unreadable config" || t.StartsWith("EchoVRCE")) return t;
+            var ours = manifest.Backend.Split(':')[0];
+            return t.Split(':')[0].Equals(ours, StringComparison.OrdinalIgnoreCase) ? "our servers" : "another server";
         }
 
         // ---- helpers ----
